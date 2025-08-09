@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # coding: utf-8
 # File: chatbot_graph.py
-# Author: lhy<lhy_in_blcu@126.com,https://huangyong.github.io>
-# Date: 18-10-4
+
 
 from question_classifier import *
 from question_parser import *
@@ -17,11 +16,11 @@ class ChatBotGraph:
 
     def chat_main(self, sent):
         answer = '您好，我是小勇医药智能助理，希望可以帮到您。如果没答上来，可联系https://liuhuanyong.github.io/。祝您身体棒棒！'
-        res_classify = self.classifier.classify(sent)
+        res_classify = self.classifier.classify(sent)#问题分类；
         if not res_classify:
             return answer
-        res_sql = self.parser.parser_main(res_classify)
-        final_answers = self.searcher.search_main(res_sql)
+        res_sql = self.parser.parser_main(res_classify)#这里是cpther语句给出
+        final_answers = self.searcher.search_main(res_sql)#最后查询到答案
         if not final_answers:
             return answer
         else:
@@ -29,8 +28,12 @@ class ChatBotGraph:
 
 if __name__ == '__main__':
     handler = ChatBotGraph()
-    while 1:
-        question = input('用户:')
-        answer = handler.chat_main(question)
-        print('小勇:', answer)
+    question = "乳腺癌的症状有哪些？"
+    #question = "最近老流鼻涕怎么办？"
+    answer = handler.chat_main(question)
+    print('小勇:', answer)
+    # while 1:
+    #     question = input('用户:')
+    #     answer = handler.chat_main(question)
+    #     print('小勇:', answer)
 

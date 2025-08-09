@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 # coding: utf-8
 # File: answer_search.py
-# Author: lhy<lhy_in_blcu@126.com,https://huangyong.github.io>
-# Date: 18-10-5
+
 
 from py2neo import Graph
 
 class AnswerSearcher:
     def __init__(self):
-        self.g = Graph(
-            host="127.0.0.1",
-            http_port=7474,
-            user="lhy",
-            password="lhy123")
+        # self.g = Graph(
+        #     host="localhost",
+        #     http_port=7687,
+        #     user="neo4j",
+        #     password="neo4j")
+        self.g = Graph("bolt://localhost:7687", auth=("neo4j", "neo4j"))
         self.num_limit = 20
 
     '''执行cypher查询，并返回相应结果'''
