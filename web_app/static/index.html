@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Medical KG QA Studio</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>医疗知识图谱问答工作台</h1>
+        <p>规则链路与 LLM 通道的可视化调试界面</p>
+      </div>
+      <div class="status-group">
+        <span id="apiStatus" class="status-dot">API 检测中</span>
+        <button id="clearBtn" class="icon-button" title="清空当前会话">清空</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="chat-panel">
+        <div class="mode-card">
+          <label class="mode-option">
+            <input type="radio" name="mode" value="rule" checked />
+            <span>规则匹配</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="llm" />
+            <span>LLM 通道</span>
+          </label>
+        </div>
+
+        <div class="question-card">
+          <textarea id="questionInput" rows="4" placeholder="请输入医疗问题，例如：高血压不能吃什么？"></textarea>
+          <div class="actions-row">
+            <button id="sendBtn" class="primary-button">发送问题</button>
+          </div>
+        </div>
+
+        <div class="examples">
+          <button data-question="乳腺癌的症状有哪些？">乳腺癌症状</button>
+          <button data-question="流鼻涕可能是什么病？">症状反查</button>
+          <button data-question="高血压不能吃什么？">饮食忌口</button>
+          <button data-question="感冒要吃什么药？">疾病用药</button>
+          <button data-question="血常规能查出什么病？">检查反查</button>
+          <button data-question="糖尿病怎么治疗？">治疗方式</button>
+        </div>
+
+        <section class="answer-section">
+          <h2>回答</h2>
+          <div id="answerView" class="answer-view">等待输入问题。</div>
+        </section>
+
+        <section class="history-section">
+          <h2>历史问题</h2>
+          <div id="historyList" class="history-list"></div>
+        </section>
+      </section>
+
+      <section class="debug-panel">
+        <nav class="tabs">
+          <button class="tab active" data-tab="entities">实体</button>
+          <button class="tab" data-tab="plan">过程</button>
+          <button class="tab" data-tab="cypher">Cypher</button>
+          <button class="tab" data-tab="results">结果</button>
+          <button class="tab" data-tab="graph">子图</button>
+        </nav>
+
+        <div class="tab-content active" id="tab-entities">
+          <pre id="entitiesJson">{}</pre>
+        </div>
+        <div class="tab-content" id="tab-plan">
+          <pre id="planJson">{}</pre>
+        </div>
+        <div class="tab-content" id="tab-cypher">
+          <pre id="cypherText"></pre>
+        </div>
+        <div class="tab-content" id="tab-results">
+          <pre id="resultsJson">[]</pre>
+        </div>
+        <div class="tab-content graph-content" id="tab-graph">
+          <svg id="graphSvg" viewBox="0 0 900 560" role="img" aria-label="图谱子图"></svg>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
