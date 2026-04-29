@@ -1,13 +1,23 @@
 import json
 import http.client
 import socket
+import time
 import urllib.error
 import urllib.request
 
 try:
-    from llm_based.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT, LLM_MAX_RETRIES
+    from llm_based.config import (
+        LLM_API_KEY,
+        LLM_BASE_URL,
+        LLM_DEBUG,
+        LLM_MAX_RETRIES,
+        LLM_MODEL,
+        LLM_TIMEOUT,
+    )
+    from llm_based.runtime import get_logger
 except ModuleNotFoundError:
-    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT, LLM_MAX_RETRIES
+    from config import LLM_API_KEY, LLM_BASE_URL, LLM_DEBUG, LLM_MAX_RETRIES, LLM_MODEL, LLM_TIMEOUT
+    from runtime import get_logger
 
 
 class LLMClient:
@@ -17,7 +27,8 @@ class LLMClient:
     """
 
     def __init__(self, api_key=None, base_url=None, model=None):
-        self.debug = True
+        self.debug = LLM_DEBUG
+        self.logger = get_logger("llm_client")
         self.api_key = api_key if api_key is not None else LLM_API_KEY
         self.base_url = (base_url if base_url is not None else LLM_BASE_URL).rstrip("/")
         self.model = model if model is not None else LLM_MODEL
@@ -120,6 +131,7 @@ class LLMClient:
                 self.debug_print("last_error", self.last_error)
                 if attempt >= LLM_MAX_RETRIES:
                     return {}
+                time.sleep(min(2, attempt + 1))
         return {}
 
     def _safe_payload(self, payload):
@@ -143,4 +155,4 @@ class LLMClient:
 
     def debug_print(self, name, value):
         if self.debug:
-            print("[LLMClient] {0}: {1}".format(name, value))
+            self.logger.info("%s: %s", name, value)

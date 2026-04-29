@@ -1,7 +1,7 @@
 try:
-    from llm_based.schema import PROPERTY_QUERIES, RELATION_QUERIES
+    from llm_based.schema import CHAIN_TEMPLATES, PROPERTY_QUERIES, RELATION_QUERIES
 except ModuleNotFoundError:
-    from schema import PROPERTY_QUERIES, RELATION_QUERIES
+    from schema import CHAIN_TEMPLATES, PROPERTY_QUERIES, RELATION_QUERIES
 
 
 class CypherBuilder:
@@ -23,6 +23,8 @@ class CypherBuilder:
             return self._build_property_query(plan)
         if action == "query_relation":
             return self._build_relation_query(plan)
+        if action == "query_relation_chain":
+            return self._build_relation_chain_query(plan)
         self.debug_print("skip_reason", "Unsupported action: {0}".format(action))
         return "", {}
 
@@ -102,6 +104,80 @@ class CypherBuilder:
             )
 
         # subject_name 始终作为参数传入，不直接拼接。
+        parameters = {"subject_name": subject["name"]}
+        self.debug_print("cypher", cypher)
+        self.debug_print("parameters", parameters)
+        return cypher, parameters
+
+    def _build_relation_chain_query(self, plan):
+        subject = plan["subject"]
+        steps = plan.get("steps", [])
+        template_name = plan.get("chain_template")
+        template = CHAIN_TEMPLATES.get(template_name)
+        if not template:
+            self.debug_print("chain_reject", "Unknown chain template.")
+            return "", {}
+        if len(steps) != len(template["steps"]):
+            self.debug_print("chain_reject", "Chain length does not match template.")
+            return "", {}
+
+        current_alias = "v0"
+        current_label = subject["label"]
+        match_parts = []
+        return_fields = ["v0.name AS subject"]
+        edge_fields = []
+
+        for index, step in enumerate(steps, start=1):
+            relation = step["relation"]
+            direction = step["direction"]
+            relation_schema = RELATION_QUERIES[relation]
+            next_alias = "v{0}".format(index)
+            relation_alias = "r{0}".format(index)
+
+            if direction == "outgoing":
+                if current_label != relation_schema["start_label"]:
+                    self.debug_print("chain_label_mismatch", {
+                        "step": index,
+                        "direction": direction,
+                        "current_label": current_label,
+                        "expected_label": relation_schema["start_label"],
+                    })
+                    return "", {}
+                next_label = relation_schema["end_label"]
+                match_parts.append(
+                    "({0}:{1})-[{2}:{3}]->({4}:{5})".format(
+                        current_alias, current_label, relation_alias, relation, next_alias, next_label
+                    )
+                )
+            else:
+                if current_label != relation_schema["end_label"]:
+                    self.debug_print("chain_label_mismatch", {
+                        "step": index,
+                        "direction": direction,
+                        "current_label": current_label,
+                        "expected_label": relation_schema["end_label"],
+                    })
+                    return "", {}
+                next_label = relation_schema["start_label"]
+                match_parts.append(
+                    "({4}:{5})-[{2}:{3}]->({0}:{1})".format(
+                        current_alias, current_label, relation_alias, relation, next_alias, next_label
+                    )
+                )
+
+            return_fields.append("{0}.name AS node{1}".format(next_alias, index))
+            return_fields.append("type({0}) AS relation{1}".format(relation_alias, index))
+            return_fields.append("{0}.name AS relation_name{1}".format(relation_alias, index))
+            edge_fields.append((current_alias, next_alias, direction))
+            current_alias = next_alias
+            current_label = next_label
+
+        return_fields.append("{0}.name AS object".format(current_alias))
+        cypher = (
+            "MATCH " + ", ".join(match_parts) +
+            " WHERE v0.name = $subject_name " +
+            " RETURN " + ", ".join(return_fields)
+        )
         parameters = {"subject_name": subject["name"]}
         self.debug_print("cypher", cypher)
         self.debug_print("parameters", parameters)

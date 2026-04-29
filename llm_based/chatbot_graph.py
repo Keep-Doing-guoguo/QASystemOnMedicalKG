@@ -72,7 +72,7 @@ class LLMChatBotGraph:
         self.graph_client = None
         self.answer_generator = AnswerGenerator(self.llm_client)
 
-    def chat_main(self, sent):
+    def chat_main(self, sent, history=None):
         answer = "当前知识图谱中没有查到相关信息。"
         # 第一步：从 dict/ 词典中识别用户问题里的图谱实体。
         linked_entities = self.entity_linker.link(sent)
@@ -81,7 +81,7 @@ class LLMChatBotGraph:
             return answer
 
         # 第二步：让 LLM 基于实体和 schema 生成结构化查询计划。
-        plan = self.intent_planner.plan(sent, linked_entities)
+        plan = self.intent_planner.plan(sent, linked_entities, history=history)
         self.debug_print("query_plan", plan)
         if not plan:
             return answer
@@ -99,7 +99,7 @@ class LLMChatBotGraph:
         graph_results = self.get_graph_client().run(cypher, parameters)
         self.debug_print("graph_results", graph_results)
         # 第六步：基于图谱结果生成最终回答。
-        answer = self.answer_generator.generate(sent, plan, graph_results)
+        answer = self.answer_generator.generate(sent, plan, graph_results, history=history)
         if self.llm_client.last_error:
             self.debug_print("llm_last_error", self.llm_client.last_error)
         return answer

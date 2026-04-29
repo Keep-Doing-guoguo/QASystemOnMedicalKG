@@ -259,6 +259,114 @@ LIMIT 10;
 .venv/bin/python -m llm_based.chatbot_graph
 ```
 
+## 7. Web 服务与会话接口
+
+启动调试工作台：
+
+```bash
+.venv/bin/python web_app/server.py
+```
+
+默认地址：
+
+```text
+http://127.0.0.1:8000
+```
+
+当前接口：
+
+```text
+GET  /api/status
+GET  /api/session/status
+POST /api/rule/chat
+POST /api/llm/chat
+POST /api/session/clear
+```
+
+`/api/llm/chat` 请求示例：
+
+```json
+{
+  "question": "高血压不能吃什么？",
+  "session_id": "optional-browser-session-id"
+}
+```
+
+统一响应结构：
+
+```json
+{
+  "ok": true,
+  "code": "OK",
+  "request_id": "uuid",
+  "data": {},
+  "error": null,
+  "meta": {
+    "duration_ms": 12.34
+  }
+}
+```
+
+## 8. 工程化运行建议
+
+推荐通过环境变量配置运行参数，参考：
+
+```text
+.env.example
+```
+
+重点配置项：
+
+```text
+LLM_API_KEY
+LLM_BASE_URL
+LLM_MODEL
+NEO4J_URI
+NEO4J_USER
+NEO4J_PASSWORD
+WEB_HOST
+WEB_PORT
+APP_LOG_LEVEL
+```
+
+## 9. 测试
+
+运行基础单元测试：
+
+```bash
+python -m unittest
+```
+
+## 10. Docker 部署
+
+构建镜像：
+
+```bash
+docker build -t medical-kg-qa:latest .
+```
+
+运行容器：
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e WEB_HOST=0.0.0.0 \
+  -e WEB_PORT=8000 \
+  -e LLM_API_KEY=your-key \
+  -e NEO4J_URI=bolt://host.docker.internal:7687 \
+  -e NEO4J_USER=neo4j \
+  -e NEO4J_PASSWORD=12341234 \
+  medical-kg-qa:latest
+```
+
+## 11. 后续建议
+
+当前项目已经具备比较清晰的模块边界、基础测试、会话记忆和统一响应结构，但如果要继续向完整生产级靠近，下一步最值得做的是：
+
+1. 将 `web_app/server.py` 迁移到 `FastAPI`
+2. 增加请求鉴权、限流和中间件
+3. 增加更完整的评测集与自动化回归
+4. 引入容器编排和监控告警
+
 核心流程：
 
 ```text
@@ -516,4 +624,3 @@ GraphClient 的 result_count 是否为 0
 支持更完整的前端图谱可视化
 用事件抽取把病因、预防措施、治疗方式结构化
 ```
-

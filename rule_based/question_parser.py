@@ -4,9 +4,18 @@
 # Author: lhy<lhy_in_blcu@126.com,https://huangyong.github.io>
 # Date: 18-10-4
 
+try:
+    from llm_based.config import APP_DEBUG
+    from llm_based.runtime import get_logger
+except ModuleNotFoundError:
+    from config import APP_DEBUG
+    from runtime import get_logger
+
+
 class QuestionPaser:
     def __init__(self):
-        self.debug = True
+        self.debug = APP_DEBUG
+        self.logger = get_logger("rule_question_parser")
 
     '''构建实体节点'''
     def build_entitydict(self, args):
@@ -192,7 +201,7 @@ class QuestionPaser:
 
     def debug_print(self, name, value):
         if self.debug:
-            print('[QuestionPaser] {0}: {1}'.format(name, value))
+            self.logger.info('%s: %s', name, value)
 
 
 

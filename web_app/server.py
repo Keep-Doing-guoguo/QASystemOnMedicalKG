@@ -4,6 +4,9 @@
 import json
 import os
 import sys
+import logging
+import time
+import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -14,10 +17,14 @@ if ROOT_DIR not in sys.path:
 
 from llm_based.answer_generator import AnswerGenerator
 from llm_based.cypher_builder import CypherBuilder
+from llm_based.context_resolver import ContextResolver
 from llm_based.entity_linker import EntityLinker
 from llm_based.graph_client import GraphClient
 from llm_based.intent_planner import IntentPlanner
 from llm_based.llm_client import LLMClient
+from llm_based.question_rewriter import QuestionRewriter
+from llm_based.runtime import api_response, setup_logging
+from llm_based.session_store import SessionStore
 from rule_based.answer_search import AnswerSearcher
 from rule_based.question_classifier import QuestionClassifier
 from rule_based.question_parser import QuestionPaser
@@ -101,14 +108,28 @@ class LLMQAService:
         self.cypher_builder = CypherBuilder()
         self.graph_client = None
         self.answer_generator = AnswerGenerator(self.llm_client)
+        self.question_rewriter = QuestionRewriter(self.llm_client)
+        self.context_resolver = ContextResolver()
 
-    def chat(self, question):
+    def chat(self, question, history=None, memory_context=None):
         fallback = "当前知识图谱中没有查到相关信息。"
         linked_entities = self.entity_linker.link(question)
+        resolved_context = self.context_resolver.resolve(question, linked_entities, history or [])
+        linked_entities = resolved_context.get("resolved_entities", linked_entities)
         if not linked_entities:
             return self._empty_response(question, fallback)
 
-        plan = self.intent_planner.plan(question, linked_entities)
+        planner_context = dict(memory_context or {})
+        planner_context.update({
+            "current_topic": resolved_context.get("current_topic"),
+            "referenced_result": resolved_context.get("referenced_result"),
+            "intent_hint": resolved_context.get("intent_hint"),
+            "followup": resolved_context.get("followup"),
+            "recent_result_entities": resolved_context.get("recent_result_entities"),
+            "last_query_plan": resolved_context.get("last_query_plan"),
+        })
+
+        plan = self.intent_planner.plan(question, linked_entities, history=history, memory_context=planner_context)
         if not plan:
             return self._empty_response(question, fallback, linked_entities=linked_entities)
 
@@ -118,7 +139,7 @@ class LLMQAService:
 
         cypher, parameters = self.cypher_builder.build(plan)
         graph_results = self._graph_client().run(cypher, parameters)
-        answer = self.answer_generator.generate(question, plan, graph_results)
+        answer = self.answer_generator.generate(question, plan, graph_results, history=history)
         return {
             "mode": "llm_based",
             "question": question,
@@ -129,6 +150,7 @@ class LLMQAService:
                 "cypher": cypher,
                 "parameters": parameters,
                 "graph_results": graph_results,
+                "memory_context": planner_context,
             },
             "graph": graph_from_llm_results(plan, graph_results),
         }
@@ -190,20 +212,82 @@ def graph_from_llm_results(plan, results):
                 edges.append({"source": target, "target": subject_name, "label": relation_name, "type": item.get("relation", "")})
             else:
                 edges.append({"source": subject_name, "target": target, "label": relation_name, "type": item.get("relation", "")})
+    elif plan.get("action") == "query_relation_chain":
+        if subject_name:
+            for item in results:
+                first_node = item.get("node1")
+                second_node = item.get("node2") or item.get("object")
+                relation_name1 = item.get("relation_name1") or item.get("relation1") or "关系1"
+                relation_name2 = item.get("relation_name2") or item.get("relation2") or "关系2"
+                if first_node:
+                    nodes[first_node] = {"id": first_node, "label": first_node, "type": "Entity"}
+                    edges.append({"source": subject_name, "target": first_node, "label": relation_name1, "type": item.get("relation1", "")})
+                if first_node and second_node:
+                    nodes[second_node] = {"id": second_node, "label": second_node, "type": "Entity"}
+                    edges.append({"source": first_node, "target": second_node, "label": relation_name2, "type": item.get("relation2", "")})
     return {"nodes": list(nodes.values()), "edges": edges}
+
+
+def extract_result_entities(data):
+    debug = data.get("debug", {})
+    mode = data.get("mode")
+    entities = []
+    if mode == "llm_based":
+        graph_results = debug.get("graph_results", [])
+        plan = debug.get("query_plan", {})
+        for item in graph_results:
+            if item.get("object"):
+                entities.append({"name": item["object"], "label": "Entity"})
+            if plan.get("action") == "query_relation_chain":
+                if item.get("node1"):
+                    entities.append({"name": item["node1"], "label": "Entity"})
+                if item.get("node2"):
+                    entities.append({"name": item["node2"], "label": "Entity"})
+    else:
+        for item in debug.get("graph_results", []):
+            if item.get("m.name"):
+                entities.append({"name": item["m.name"], "label": "Entity"})
+            if item.get("n.name"):
+                entities.append({"name": item["n.name"], "label": "Entity"})
+
+    deduped = []
+    seen = set()
+    for entity in entities:
+        key = (entity.get("name"), entity.get("label"))
+        if key[0] and key not in seen:
+            deduped.append(entity)
+            seen.add(key)
+    return deduped[:10]
 
 
 class AppHandler(SimpleHTTPRequestHandler):
     rule_service = None
     llm_service = None
+    session_store = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
     def do_GET(self):
         path = urlparse(self.path).path
+        request_id = str(uuid.uuid4())
         if path == "/api/status":
-            self.write_json({"ok": True, "service": "Medical KG QA Studio"})
+            self.write_json(api_response(
+                True,
+                data={
+                    "service": "Medical KG QA Studio",
+                    "llm_configured": bool(self.llm_service.llm_client.api_key),
+                    "active_sessions": self.session_store.session_count(),
+                },
+                request_id=request_id,
+            ))
+            return
+        if path == "/api/session/status":
+            self.write_json(api_response(
+                True,
+                data={"active_sessions": self.session_store.session_count()},
+                request_id=request_id,
+            ))
             return
         if path == "/":
             self.path = "/index.html"
@@ -211,23 +295,105 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        request_id = str(uuid.uuid4())
+        started_at = time.time()
         try:
             payload = self.read_json()
+
+            # 会话清除接口
+            if path == "/api/session/clear":
+                sid = (payload.get("session_id") or "").strip()
+                if sid:
+                    self.session_store.clear_session(sid)
+                self.write_json(api_response(
+                    True,
+                    data={"cleared": bool(sid)},
+                    request_id=request_id,
+                    meta={"duration_ms": round((time.time() - started_at) * 1000, 2)},
+                ))
+                return
+
             question = (payload.get("question") or "").strip()
             if not question:
-                self.write_json({"error": "question is required"}, status=400)
+                self.write_json(
+                    api_response(
+                        False,
+                        error={"message": "question is required"},
+                        code="BAD_REQUEST",
+                        request_id=request_id,
+                        meta={"duration_ms": round((time.time() - started_at) * 1000, 2)},
+                    ),
+                    status=400,
+                )
                 return
+
+            # 会话管理：获取或创建 session
+            session_id = (payload.get("session_id") or "").strip()
+            session = None
+            if session_id:
+                session = self.session_store.get_session(session_id)
+            if not session:
+                session_id = self.session_store.create_session()
+                session = self.session_store.get_session(session_id)
+
+            history = session.get("history", []) if session else []
+            memory_context = session.get("memory_context", {}) if session else {}
 
             if path == "/api/rule/chat":
                 data = self.rule_service.chat(question)
             elif path == "/api/llm/chat":
-                data = self.llm_service.chat(question)
+                # 问题改写：将代词/省略还原为完整问题
+                effective_question = self.llm_service.question_rewriter.rewrite(question, history)
+                data = self.llm_service.chat(effective_question, history=history, memory_context=memory_context)
+                if effective_question != question:
+                    data["original_question"] = question
+                    data["rewritten_question"] = effective_question
             else:
-                self.write_json({"error": "not found"}, status=404)
+                self.write_json(
+                    api_response(
+                        False,
+                        error={"message": "not found"},
+                        code="NOT_FOUND",
+                        request_id=request_id,
+                        meta={"duration_ms": round((time.time() - started_at) * 1000, 2)},
+                    ),
+                    status=404,
+                )
                 return
-            self.write_json(data)
+
+            # 记录本轮对话到 session
+            self.session_store.add_turn(session_id, "user", question=question)
+            self.session_store.add_turn(
+                session_id, "assistant",
+                answer=data.get("answer", ""),
+                entities=data.get("debug", {}).get("linked_entities", []),
+                plan=data.get("debug", {}).get("query_plan", {}),
+                result_entities=extract_result_entities(data),
+                graph_results=data.get("debug", {}).get("graph_results", [])[:8],
+            )
+            data["session_id"] = session_id
+            logging.getLogger("web_app").info(
+                "request ok path=%s request_id=%s duration_ms=%.2f",
+                path, request_id, (time.time() - started_at) * 1000,
+            )
+            self.write_json(api_response(
+                True,
+                data=data,
+                request_id=request_id,
+                meta={"duration_ms": round((time.time() - started_at) * 1000, 2)},
+            ))
         except Exception as exc:
-            self.write_json({"error": str(exc)}, status=500)
+            logging.getLogger("web_app").exception("request failed: path=%s", path)
+            self.write_json(
+                api_response(
+                    False,
+                    error={"message": str(exc)},
+                    code="INTERNAL_ERROR",
+                    request_id=request_id,
+                    meta={"duration_ms": round((time.time() - started_at) * 1000, 2)},
+                ),
+                status=500,
+            )
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -244,12 +410,14 @@ class AppHandler(SimpleHTTPRequestHandler):
 
 
 def main():
+    setup_logging()
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "8000"))
     AppHandler.rule_service = RuleQAService()
     AppHandler.llm_service = LLMQAService()
+    AppHandler.session_store = SessionStore(llm_client=AppHandler.llm_service.llm_client)
     server = ThreadingHTTPServer((host, port), AppHandler)
-    print("Medical KG QA Studio: http://{0}:{1}".format(host, port))
+    logging.getLogger("web_app").info("Medical KG QA Studio: http://%s:%s", host, port)
     server.serve_forever()
 
 

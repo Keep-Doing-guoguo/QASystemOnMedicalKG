@@ -145,7 +145,7 @@ class MedicalGraph:
 
 if __name__ == '__main__':
     handler = MedicalGraph()
-    #handler.modify_jc()
+    handler.modify_jc()
     handler.collect_medical()
 
 '''

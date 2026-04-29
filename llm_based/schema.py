@@ -76,8 +76,44 @@ RELATION_QUERIES = {
     },
 }
 
-# LLM 查询计划只允许这两类动作。
-SUPPORTED_ACTIONS = {"query_property", "query_relation"}
+# LLM 查询计划允许属性、单跳关系和有限两跳关系。
+SUPPORTED_ACTIONS = {"query_property", "query_relation", "query_relation_chain"}
+
+# 受控多跳模板。只允许这些固定模式进入 CypherBuilder。
+CHAIN_TEMPLATES = {
+    "symptom_to_drug": {
+        "subject_label": "Symptom",
+        "name": "症状->疾病->常用药品",
+        "steps": [
+            {"relation": "has_symptom", "direction": "incoming"},
+            {"relation": "common_drug", "direction": "outgoing"},
+        ],
+    },
+    "symptom_to_check": {
+        "subject_label": "Symptom",
+        "name": "症状->疾病->所需检查",
+        "steps": [
+            {"relation": "has_symptom", "direction": "incoming"},
+            {"relation": "need_check", "direction": "outgoing"},
+        ],
+    },
+    "food_to_drug": {
+        "subject_label": "Food",
+        "name": "食物->疾病->常用药品",
+        "steps": [
+            {"relation": "do_eat", "direction": "incoming"},
+            {"relation": "common_drug", "direction": "outgoing"},
+        ],
+    },
+    "drug_to_symptom": {
+        "subject_label": "Drug",
+        "name": "药品->疾病->症状",
+        "steps": [
+            {"relation": "common_drug", "direction": "incoming"},
+            {"relation": "has_symptom", "direction": "outgoing"},
+        ],
+    },
+}
 
 
 def schema_for_prompt():
@@ -86,5 +122,6 @@ def schema_for_prompt():
         "entity_labels": ENTITY_LABELS,
         "property_queries": PROPERTY_QUERIES,
         "relation_queries": RELATION_QUERIES,
+        "chain_templates": CHAIN_TEMPLATES,
         "supported_actions": sorted(SUPPORTED_ACTIONS),
     }

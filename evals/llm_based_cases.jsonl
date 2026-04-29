@@ -1,0 +1,12 @@
+{"category":"single_relation","question":"高血压不能吃什么？","mode":"llm","expect_plan_action":"query_relation","expect_relation":"no_eat"}
+{"category":"single_relation","question":"高血压适合吃什么？","mode":"llm","expect_plan_action":"query_relation","expect_relation":"do_eat"}
+{"category":"single_property","question":"为什么会得高血压？","mode":"llm","expect_plan_action":"query_property","expect_property":"cause"}
+{"category":"single_property","question":"糖尿病怎么治疗？","mode":"llm","expect_plan_action":"query_property","expect_property":"cure_way"}
+{"category":"reverse_relation","question":"流鼻涕可能是什么病？","mode":"llm","expect_plan_action":"query_relation","expect_relation":"has_symptom","expect_direction":"incoming"}
+{"category":"reverse_relation","question":"板蓝根颗粒能治什么病？","mode":"llm","expect_plan_action":"query_relation","expect_relation":"common_drug","expect_direction":"incoming"}
+{"category":"followup","question":"它的病因呢？","mode":"llm","history":[{"role":"assistant","plan":{"subject":{"name":"高血压","label":"Disease"}}}],"expect_memory_subject":"高血压","expect_plan_action":"query_property","expect_property":"cause"}
+{"category":"followup","question":"那怎么治疗？","mode":"llm","history":[{"role":"assistant","plan":{"subject":{"name":"糖尿病","label":"Disease"}}}],"expect_memory_subject":"糖尿病","expect_plan_action":"query_property","expect_property":"cure_way"}
+{"category":"ordinal_reference","question":"第二个药还能治什么病？","mode":"llm","history":[{"role":"assistant","plan":{"subject":{"name":"感冒","label":"Disease"}},"result_entities":[{"name":"板蓝根颗粒","label":"Drug"},{"name":"阿莫西林","label":"Drug"}]}],"expect_referenced_result":"阿莫西林"}
+{"category":"chain","question":"流鼻涕吃什么药？","mode":"llm","expect_plan_action":"query_relation_chain","expect_chain_template":"symptom_to_drug"}
+{"category":"chain","question":"流鼻涕要做什么检查？","mode":"llm","expect_plan_action":"query_relation_chain","expect_chain_template":"symptom_to_check"}
+{"category":"chain","question":"鹅肉对应什么药？","mode":"llm","expect_plan_action":"query_relation_chain","expect_chain_template":"food_to_drug"}

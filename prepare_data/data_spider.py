@@ -164,7 +164,7 @@ class CrimeSpider:
 
 
 handler = CrimeSpider()
-#handler.inspect_crawl()
+handler.inspect_crawl()
 handler.spider_main()
 
 

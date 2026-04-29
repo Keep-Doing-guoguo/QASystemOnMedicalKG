@@ -3,87 +3,248 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Medical KG QA Studio</title>
+    <title>知识图谱问答系统</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>医疗知识图谱问答工作台</h1>
-        <p>规则链路与 LLM 通道的可视化调试界面</p>
-      </div>
-      <div class="status-group">
-        <span id="apiStatus" class="status-dot">API 检测中</span>
-        <button id="clearBtn" class="icon-button" title="清空当前会话">清空</button>
-      </div>
-    </header>
-
-    <main class="layout">
-      <section class="chat-panel">
-        <div class="mode-card">
-          <label class="mode-option">
-            <input type="radio" name="mode" value="rule" checked />
-            <span>规则匹配</span>
-          </label>
-          <label class="mode-option">
-            <input type="radio" name="mode" value="llm" />
-            <span>LLM 通道</span>
-          </label>
-        </div>
-
-        <div class="question-card">
-          <textarea id="questionInput" rows="4" placeholder="请输入医疗问题，例如：高血压不能吃什么？"></textarea>
-          <div class="actions-row">
-            <button id="sendBtn" class="primary-button">发送问题</button>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div>
+            <h1>知识图谱问答系统</h1>
+            <p>Knowledge Graph QA</p>
           </div>
         </div>
 
-        <div class="examples">
-          <button data-question="乳腺癌的症状有哪些？">乳腺癌症状</button>
-          <button data-question="流鼻涕可能是什么病？">症状反查</button>
-          <button data-question="高血压不能吃什么？">饮食忌口</button>
-          <button data-question="感冒要吃什么药？">疾病用药</button>
-          <button data-question="血常规能查出什么病？">检查反查</button>
-          <button data-question="糖尿病怎么治疗？">治疗方式</button>
-        </div>
-
-        <section class="answer-section">
-          <h2>回答</h2>
-          <div id="answerView" class="answer-view">等待输入问题。</div>
-        </section>
-
-        <section class="history-section">
-          <h2>历史问题</h2>
-          <div id="historyList" class="history-list"></div>
-        </section>
-      </section>
-
-      <section class="debug-panel">
-        <nav class="tabs">
-          <button class="tab active" data-tab="entities">实体</button>
-          <button class="tab" data-tab="plan">过程</button>
-          <button class="tab" data-tab="cypher">Cypher</button>
-          <button class="tab" data-tab="results">结果</button>
-          <button class="tab" data-tab="graph">子图</button>
+        <nav class="nav-menu">
+          <button class="nav-item" type="button">
+            <span class="nav-icon">⌂</span>
+            <span>首页</span>
+          </button>
+          <button class="nav-item" type="button">
+            <span class="nav-icon">⌘</span>
+            <span>知识图谱</span>
+          </button>
+          <button class="nav-item active" type="button">
+            <span class="nav-icon">✦</span>
+            <span>智能问答</span>
+          </button>
+          <button class="nav-item" type="button">
+            <span class="nav-icon">◌</span>
+            <span>实体检索</span>
+          </button>
+          <button class="nav-item" type="button">
+            <span class="nav-icon">∞</span>
+            <span>关系检索</span>
+          </button>
+          <button class="nav-item" type="button">
+            <span class="nav-icon">▥</span>
+            <span>数据统计</span>
+          </button>
+          <button class="nav-item" type="button">
+            <span class="nav-icon">▣</span>
+            <span>图谱管理</span>
+          </button>
+          <button class="nav-item" type="button">
+            <span class="nav-icon">⚙</span>
+            <span>系统设置</span>
+          </button>
         </nav>
 
-        <div class="tab-content active" id="tab-entities">
-          <pre id="entitiesJson">{}</pre>
+        <div class="sidebar-footer">
+          <button id="clearBtn" class="collapse-button" type="button">〈 收起</button>
+          <section class="stats-card">
+            <h2>图谱统计</h2>
+            <dl>
+              <div>
+                <dt>实体数量</dt>
+                <dd>12,345</dd>
+              </div>
+              <div>
+                <dt>关系数量</dt>
+                <dd>45,678</dd>
+              </div>
+              <div>
+                <dt>知识库</dt>
+                <dd>8</dd>
+              </div>
+              <div>
+                <dt>运行状态</dt>
+                <dd id="apiStatus">检测中</dd>
+              </div>
+            </dl>
+          </section>
         </div>
-        <div class="tab-content" id="tab-plan">
-          <pre id="planJson">{}</pre>
-        </div>
-        <div class="tab-content" id="tab-cypher">
-          <pre id="cypherText"></pre>
-        </div>
-        <div class="tab-content" id="tab-results">
-          <pre id="resultsJson">[]</pre>
-        </div>
-        <div class="tab-content graph-content" id="tab-graph">
-          <svg id="graphSvg" viewBox="0 0 900 560" role="img" aria-label="图谱子图"></svg>
-        </div>
-      </section>
-    </main>
+      </aside>
+
+      <div class="main-shell">
+        <header class="topbar">
+          <div class="topbar-spacer"></div>
+          <div class="topbar-actions">
+            <button id="historyToggle" class="topbar-link" type="button">◔ 历史记录</button>
+            <button class="topbar-link" type="button">☆ 收藏夹</button>
+            <div class="avatar-chip">
+              <span class="avatar">张</span>
+              <span>张三</span>
+              <span class="caret">⌄</span>
+            </div>
+          </div>
+        </header>
+
+        <main class="workspace">
+          <section class="search-card">
+            <div class="search-row">
+              <div class="search-box">
+                <input
+                  id="questionInput"
+                  type="text"
+                  placeholder="请输入问题，例如：高血压不能吃什么？"
+                />
+              </div>
+              <button id="sendBtn" class="search-button" type="button">✈ 查询</button>
+              <select id="modeSelect" class="mode-select" aria-label="查询模式">
+                <option value="llm">高级搜索</option>
+                <option value="rule">规则搜索</option>
+              </select>
+            </div>
+            <div class="hot-row">
+              <span class="hot-label">热门查询：</span>
+              <div class="hot-list examples">
+                <button data-question="乳腺癌的症状有哪些？" type="button">乳腺癌的症状有哪些？</button>
+                <button data-question="高血压不能吃什么？" type="button">高血压不能吃什么？</button>
+                <button data-question="感冒要吃什么药？" type="button">感冒要吃什么药？</button>
+                <button data-question="血常规能查出什么病？" type="button">血常规能查出什么病？</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="content-grid">
+            <section class="graph-panel panel-card">
+              <div class="panel-head">
+                <div class="tab-switch">
+                  <button class="view-tab active" data-view="graph" type="button">图谱展示</button>
+                  <button class="view-tab" data-view="path" type="button">路径展示</button>
+                </div>
+                <div class="graph-tools">
+                  <button id="zoomInBtn" class="tool-btn" type="button" title="放大">＋</button>
+                  <button id="zoomOutBtn" class="tool-btn" type="button" title="缩小">－</button>
+                  <button id="resetZoomBtn" class="tool-btn" type="button" title="重置">⌂</button>
+                </div>
+              </div>
+
+              <div class="graph-stage">
+                <div id="graphEmpty" class="graph-empty">
+                  <strong>等待查询</strong>
+                  <p>输入问题后，这里会展示知识图谱子图或关系路径。</p>
+                </div>
+                <div id="graphViewport" class="graph-viewport">
+                  <svg id="graphSvg" viewBox="0 0 900 620" role="img" aria-label="图谱展示"></svg>
+                </div>
+                <div id="pathView" class="path-view hidden"></div>
+              </div>
+
+              <div class="legend-row">
+                <span class="legend-title">图例：</span>
+                <span class="legend-item"><i class="legend-dot person"></i>人物/疾病</span>
+                <span class="legend-item"><i class="legend-dot org"></i>机构/检查</span>
+                <span class="legend-item"><i class="legend-dot topic"></i>研究方向/症状</span>
+                <span class="legend-item"><i class="legend-dot subject"></i>学科/食物</span>
+                <span class="legend-item"><i class="legend-dot project"></i>项目/药品</span>
+              </div>
+
+              <section class="panel-note">
+                <h3>知识图谱说明</h3>
+                <p>
+                  当前视图展示的是根据问题命中的子图。你可以切换规则模式或高级模式进行对比，
+                  系统会根据接口返回结果自动生成图谱节点、关系路径和答案摘要。
+                </p>
+              </section>
+            </section>
+
+            <aside class="result-panel panel-card">
+              <div class="result-head">
+                <span class="result-badge"></span>
+                <h2>问答结果</h2>
+              </div>
+
+              <div class="result-body">
+                <section class="result-block">
+                  <h3>问题：</h3>
+                  <p id="questionText">等待输入问题</p>
+                </section>
+
+                <section class="result-block">
+                  <h3>答案：</h3>
+                  <div id="answerView" class="answer-view">系统将结合当前知识图谱返回结果。</div>
+                </section>
+
+                <section class="result-block">
+                  <h3>基于以下知识图谱信息：</h3>
+                  <ul id="evidenceList" class="evidence-list">
+                    <li>暂无图谱证据</li>
+                  </ul>
+                </section>
+
+                <section class="result-card">
+                  <h3>相关关系路径</h3>
+                  <div id="pathList" class="path-list">
+                    <span class="path-empty">暂无路径</span>
+                  </div>
+                </section>
+
+                <section class="result-card">
+                  <h3>相关实体</h3>
+                  <div id="entityTags" class="entity-tags">
+                    <span class="tag">暂无实体</span>
+                  </div>
+                </section>
+
+                <section id="historyPanel" class="result-card history-card hidden">
+                  <h3>历史记录</h3>
+                  <div id="historyList" class="history-list"></div>
+                </section>
+
+                <section class="debug-card">
+                  <details>
+                    <summary>调试详情</summary>
+                    <div class="debug-grid">
+                      <article>
+                        <h4>实体识别</h4>
+                        <pre id="entitiesJson">{}</pre>
+                      </article>
+                      <article>
+                        <h4>查询计划</h4>
+                        <pre id="planJson">{}</pre>
+                      </article>
+                      <article>
+                        <h4>Cypher</h4>
+                        <pre id="cypherText"></pre>
+                      </article>
+                      <article>
+                        <h4>查询结果</h4>
+                        <pre id="resultsJson">[]</pre>
+                      </article>
+                    </div>
+                  </details>
+                </section>
+              </div>
+
+              <div class="result-actions">
+                <button id="copyAnswerBtn" type="button">⎘ 复制答案</button>
+                <button id="favoriteBtn" type="button">☆ 收藏</button>
+                <button id="exportBtn" type="button">⇪ 导出</button>
+              </div>
+            </aside>
+          </section>
+        </main>
+      </div>
+    </div>
 
     <script src="/app.js"></script>
   </body>

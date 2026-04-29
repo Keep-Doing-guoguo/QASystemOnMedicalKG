@@ -7,9 +7,17 @@
 import os
 import ahocorasick
 
+try:
+    from llm_based.config import APP_DEBUG
+    from llm_based.runtime import get_logger
+except ModuleNotFoundError:
+    from config import APP_DEBUG
+    from runtime import get_logger
+
 class QuestionClassifier:
     def __init__(self):
-        self.debug = True
+        self.debug = APP_DEBUG
+        self.logger = get_logger("rule_question_classifier")
         # Resolve project root so dict paths work no matter where we run from.
         cur_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         #　特征词路径
@@ -58,9 +66,9 @@ class QuestionClassifier:
         self.check_qwds = ['检查', '检查项目', '查出', '检查', '测出', '试出']
         self.belong_qwds = ['属于什么科', '属于', '什么科', '科室']
         self.cure_qwds = ['治疗什么', '治啥', '治疗啥', '医治啥', '治愈啥', '主治啥', '主治什么', '有什么用', '有何用', '用处', '用途',
-                          '有什么好处', '有什么益处', '有何益处', '用来', '用来做啥', '用来作甚', '需要', '要']
+                          '有什么好处', '有什么益处', '有何益处', '用来', '用来做啥', '用来作甚', '需要', '要']#能治什么
 
-        print('model init finished ......')
+        self.debug_print('init', 'model init finished ......')
 
         return
 
@@ -256,7 +264,7 @@ class QuestionClassifier:
 
     def debug_print(self, name, value):
         if self.debug:
-            print('[QuestionClassifier] {0}: {1}'.format(name, value))
+            self.logger.info('%s: %s', name, value)
 
 
 if __name__ == '__main__':

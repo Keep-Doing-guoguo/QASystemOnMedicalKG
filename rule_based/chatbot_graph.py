@@ -8,10 +8,14 @@ try:
     from rule_based.question_classifier import *
     from rule_based.question_parser import *
     from rule_based.answer_search import *
+    from llm_based.config import APP_DEBUG
+    from llm_based.runtime import get_logger
 except ModuleNotFoundError:
     from question_classifier import *
     from question_parser import *
     from answer_search import *
+    from config import APP_DEBUG
+    from runtime import get_logger
 
 DEBUG_QUESTIONS = [
     # disease_symptom: 疾病 -> 症状
@@ -63,7 +67,8 @@ DEBUG_MULTI_INTENT_QUESTIONS = [
 '''问答类'''
 class ChatBotGraph:
     def __init__(self):
-        self.debug = True
+        self.debug = APP_DEBUG
+        self.logger = get_logger("rule_chatbot_graph")
         self.classifier = QuestionClassifier()
         self.parser = QuestionPaser()
         self.searcher = AnswerSearcher()
@@ -88,7 +93,7 @@ class ChatBotGraph:
 
     def debug_print(self, name, value):
         if self.debug:
-            print('[ChatBotGraph] {0}: {1}'.format(name, value))
+            self.logger.info('%s: %s', name, value)
 
 
 def run_debug_questions(handler, questions):
