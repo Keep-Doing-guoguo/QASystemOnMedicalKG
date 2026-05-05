@@ -13,6 +13,12 @@ class SessionStoreTests(unittest.TestCase):
         self.assertEqual(session["session_id"], session_id)
         self.assertEqual(len(session["history"]), 2)
 
+    def test_create_with_external_session_id(self):
+        store = SessionStore(llm_client=None, db_path=":memory:")
+        session_id = store.create_session("debug-memory-002")
+        self.assertEqual(session_id, "debug-memory-002")
+        self.assertIsNotNone(store.get_session("debug-memory-002"))
+
 
 if __name__ == "__main__":
     unittest.main()

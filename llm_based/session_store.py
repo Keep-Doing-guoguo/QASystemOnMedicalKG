@@ -37,9 +37,12 @@ class SessionStore:
     # Public API
     # ------------------------------------------------------------------
 
-    def create_session(self):
-        """创建新 session，返回 session_id。"""
-        session_id = str(uuid.uuid4())
+    def create_session(self, session_id=None):
+        """创建新 session，返回 session_id。
+
+        如果外部传入 session_id，则按该 id 创建，便于 API 客户端复用同一个会话。
+        """
+        session_id = (session_id or "").strip() or str(uuid.uuid4())
         self._db.create_session(session_id)
         with self._lock:
             self._memory[session_id] = []

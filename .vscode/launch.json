@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug llm_based.chatbot_graph",
+      "type": "python",
+      "request": "launch",
+      "module": "llm_based.chatbot_graph",
+      "python": "/Users/zhangguowen/miniconda3/bin/python",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "CONDA_DEFAULT_ENV": "base",
+        "CONDA_PREFIX": "/Users/zhangguowen/miniconda3",
+        "APP_LOG_LEVEL": "INFO"
+      }
+    },
+    {
+      "name": "Debug llm_based/chatbot_graph.py (file)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/llm_based/chatbot_graph.py",
+      "python": "/Users/zhangguowen/miniconda3/bin/python",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "CONDA_DEFAULT_ENV": "base",
+        "CONDA_PREFIX": "/Users/zhangguowen/miniconda3",
+        "APP_LOG_LEVEL": "INFO"
+      }
+    },
+    {
+      "name": "Debug web_app/server.py",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/web_app/server.py",
+      "python": "/Users/zhangguowen/miniconda3/bin/python",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "CONDA_DEFAULT_ENV": "base",
+        "CONDA_PREFIX": "/Users/zhangguowen/miniconda3",
+        "WEB_HOST": "127.0.0.1",
+        "WEB_PORT": "8000",
+        "APP_LOG_LEVEL": "DEBUG"
+      }
+    },
+    {
+      "name": "Debug FastAPI web_app",
+      "type": "python",
+      "request": "launch",
+      "module": "web_app.fastapi_server",
+      "python": "/Users/zhangguowen/miniconda3/bin/python",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "CONDA_DEFAULT_ENV": "base",
+        "CONDA_PREFIX": "/Users/zhangguowen/miniconda3",
+        "WEB_HOST": "127.0.0.1",
+        "WEB_PORT": "8000",
+        "APP_LOG_LEVEL": "DEBUG"
+      }
+    }
+  ]
+}

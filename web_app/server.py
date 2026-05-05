@@ -333,7 +333,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             if session_id:
                 session = self.session_store.get_session(session_id)
             if not session:
-                session_id = self.session_store.create_session()
+                session_id = self.session_store.create_session(session_id)
                 session = self.session_store.get_session(session_id)
 
             history = session.get("history", []) if session else []
@@ -412,7 +412,7 @@ class AppHandler(SimpleHTTPRequestHandler):
 def main():
     setup_logging()
     host = os.getenv("WEB_HOST", "127.0.0.1")
-    port = int(os.getenv("WEB_PORT", "8000"))
+    port = 8111
     AppHandler.rule_service = RuleQAService()
     AppHandler.llm_service = LLMQAService()
     AppHandler.session_store = SessionStore(llm_client=AppHandler.llm_service.llm_client)
