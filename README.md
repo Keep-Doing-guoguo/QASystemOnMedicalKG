@@ -1,626 +1,263 @@
-# QASystemOnMedicalKG
+# Medical KG QA Studio · 医疗知识图谱问答系统
 
-这是一个基于医疗知识图谱的问答系统。项目以疾病为中心构建 Neo4j 图谱，并提供两条问答通道：
+基于 **Neo4j 医疗知识图谱** 与 **大语言模型（LLM）** 的智能问答系统。用户可以用自然语言提问，系统通过实体识别、查询规划、图谱检索和答案生成四个步骤，从医疗知识图谱中找出答案并返回。
 
-```text
-rule_based：词典匹配 + 规则分类 + Cypher 查询 + 模板回答
-llm_based ：词典实体对齐 + LLM 查询规划 + Cypher 查询 + LLM/模板回答
+## 系统架构
+
+整个问答链路分为六个环节，每个环节由独立模块负责：
+
+```mermaid
+flowchart LR
+    Q[用户问题] --> EL[EntityLinker<br/>实体识别]
+    EL --> CR[ContextResolver<br/>上下文解析]
+    CR --> IP[IntentPlanner<br/>查询规划]
+    IP --> CB[CypherBuilder<br/>Cypher 生成]
+    CB --> GC[GraphClient<br/>图谱查询]
+    GC --> AG[AnswerGenerator<br/>答案生成]
+    AG --> A[最终回答]
 ```
 
-当前代码已经按学习和调试方式重新整理过。推荐先从 `rule_based` 理解传统规则问答链路，再看 `llm_based` 如何在保持图谱内容不变的前提下接入大模型。
+### 模块说明
 
-## 1. 项目目录
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| **EntityLinker** | [entity_link.py](llm_base/entity_link.py) | 基于医学词典的实体识别，使用 Aho-Corasick 自动机高效匹配 |
+| **ContextResolver** | [content_resolver.py](llm_base/content_resolver.py) | 多轮对话上下文解析，恢复主题、解析指代、推断意图 |
+| **QuestionRewriter** | [question_rewriter.py](llm_base/question_rewriter.py) | 代词消解（它/那/这个），将不完整问题改写为独立问题 |
+| **IntentPlanner** | [intent_planner.py](llm_base/intent_planner.py) | 调用 LLM 生成受 schema 约束的结构化查询计划 |
+| **CypherBuilder** | [cypher_builder.py](llm_base/cypher_builder.py) | 将查询计划转换为参数化 Cypher 语句 |
+| **GraphClient** | [graph_client.py](llm_base/graph_client.py) | Neo4j 图数据库客户端 |
+| **AnswerGenerator** | [answer_generator.py](llm_base/answer_generator.py) | 基于图谱结果生成回答，LLM 优先 + 模板兜底 |
+| **LLMClient** | [llm_client.py](llm_base/llm_client.py) | OpenAI 兼容的 Chat Completions 客户端（默认使用阿里云 DashScope） |
+| **SessionStore** | [session_store.py](llm_base/session_store.py) | 会话管理：内存缓存 + SQLite 持久化 + LLM 摘要压缩 |
+| **MemoryCompressor** | [memory_compressor.py](llm_base/memory_compressor.py) | 长对话 LLM 摘要压缩，节省 token |
+| **PersistentStore** | [persistent_store.py](llm_base/persistent_store.py) | SQLite 持久化存储层 |
+| **Schema** | [schema.py](llm_base/schema.py) | 知识图谱白名单 schema，约束 LLM 查询范围 |
 
-```text
-.
-├── data/                  # 原始医疗数据，例如 medical.json
-├── dict/                  # 实体词典，供规则分类和 LLM 实体对齐使用
-├── docs/                  # 项目讲解文档
-├── llm_based/             # 大模型版问答通道
-├── prepare_data/          # 数据采集、清洗和中间处理脚本
-├── rule_based/            # 规则匹配版问答通道和 Neo4j 建图脚本
-├── web_app/               # 简单前端问答工作台
-├── .vscode/               # VS Code 调试配置
-└── README.md
-```
+### Web 服务
 
-核心目录说明：
+| 模块 | 文件 | 说明 |
+|------|------|------|
+| **FastAPI Server** | [fastapi_server.py](web_app/fastapi_server.py) | FastAPI 应用，提供 RESTful API |
+| **Streaming Server** | [server.py](web_app/server.py) | LLM 问答服务核心逻辑 |
+| **前端静态页面** | [web_app/static/](web_app/static/) | HTML/CSS/JS 单页应用界面 |
 
-| 目录 | 作用 |
-| --- | --- |
-| `rule_based/` | 原始规则版问答主线，适合学习知识图谱问答的基本流程 |
-| `llm_based/` | LLM 版问答通道，让大模型负责理解问题和生成回答 |
-| `dict/` | 疾病、症状、药品、食物、检查等实体词典 |
-| `data/` | 建图使用的数据文件 |
-| `docs/` | 按模块整理后的讲解文档 |
-| `web_app/` | 可视化调试页面，不参与项目讲解主线 |
+## 快速开始
 
-## 2. 图谱规模
+### 前置依赖
 
-原始项目构建的是一个疾病中心的医疗知识图谱，包含约 4.4 万个实体和约 30 万条关系。
+- Python 3.9+
+- Neo4j 图数据库（已导入医疗知识图谱数据）
+- 兼容 OpenAI API 的 LLM 服务（默认使用阿里云 DashScope，可切换其他服务）
 
-### 2.1 节点类型
-
-| Neo4j Label | 中文含义 | 示例 |
-| --- | --- | --- |
-| `Disease` | 疾病 | 高血压、糖尿病、乳腺癌 |
-| `Symptom` | 症状 | 流鼻涕、胸痛、乳房肿块 |
-| `Drug` | 药品 | 板蓝根颗粒、布林佐胺滴眼液 |
-| `Food` | 食物 | 蜂蜜、鹅肉、番茄冲菜牛肉丸汤 |
-| `Check` | 检查项目 | 血常规、支气管造影 |
-| `Department` | 科室 | 内科、妇产科 |
-| `Producer` | 在售药品/生产商药品名 | 通药制药青霉素V钾片 |
-
-### 2.2 关系类型
-
-| 关系类型 | 中文含义 | 示例 |
-| --- | --- | --- |
-| `has_symptom` | 疾病症状 | 疾病 -> 症状 |
-| `acompany_with` | 并发疾病 | 疾病 -> 疾病 |
-| `no_eat` | 忌吃食物 | 疾病 -> 食物 |
-| `do_eat` | 宜吃食物 | 疾病 -> 食物 |
-| `recommand_eat` | 推荐食谱 | 疾病 -> 食物 |
-| `common_drug` | 常用药品 | 疾病 -> 药品 |
-| `recommand_drug` | 推荐药品 | 疾病 -> 药品 |
-| `need_check` | 所需检查 | 疾病 -> 检查项目 |
-| `drugs_of` | 在售药品 | 生产商药品名 -> 药品 |
-| `belongs_to` | 所属科室 | 疾病/科室 -> 科室 |
-
-### 2.3 疾病属性
-
-`Disease` 节点除了 `name` 外，还包含这些常用属性：
-
-| 属性 | 中文含义 |
-| --- | --- |
-| `desc` | 疾病简介 |
-| `cause` | 疾病病因 |
-| `prevent` | 预防措施 |
-| `cure_lasttime` | 治疗周期 |
-| `cure_way` | 治疗方式 |
-| `cured_prob` | 治愈概率 |
-| `easy_get` | 易感人群 |
-
-目前 `cause`、`prevent` 这类内容还是大段文本属性。后续可以尝试事件抽取，把原因、预防措施等拆成独立节点和关系。
-
-## 3. 环境准备
-
-### 3.1 Python 虚拟环境
-
-项目根目录已经按 `.venv` 使用方式整理。新环境可以这样创建：
+### 安装
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install py2neo==2021.2.4 pyahocorasick==2.1.0 lxml==5.3.0 pymongo==4.10.1
+# 克隆项目
+git clone <repo-url> && cd QASystemOnMedicalKG
+
+# 安装依赖
+pip install py2neo fastapi uvicorn pydantic ahocorasock
 ```
 
-注意：
+### 配置
 
-```text
-pip 安装包名是 pyahocorasick
-代码导入名是 ahocorasick
-```
-
-所以不要执行：
+通过环境变量进行配置，或直接修改 [config.py](llm_base/config.py)：
 
 ```bash
-pip install ahocorasick
+# LLM 配置（使用 OpenAI 兼容接口）
+export LLM_API_KEY="your-api-key"
+export LLM_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+export LLM_MODEL="qwen-turbo"
+
+# Neo4j 配置
+export NEO4J_URI="bolt://127.0.0.1:7687"
+export NEO4J_USER="neo4j"
+export NEO4J_PASSWORD="your-password"
+
+# 其他配置
+export LLM_TIMEOUT=60
+export LLM_MAX_RETRIES=2
+export APP_DEBUG=false
 ```
 
-应该执行：
+### 启动
 
 ```bash
-pip install pyahocorasick
+# 启动 FastAPI Web 服务
+uvicorn web_app.fastapi_server:create_app --factory --host 0.0.0.0 --port 8000 --reload
+
+# 启动后访问 http://localhost:8000
 ```
 
-### 3.2 Neo4j
-
-项目默认连接配置：
-
-```text
-地址：bolt://127.0.0.1:7687
-账号：neo4j
-密码：12341234
-```
-
-相关代码位置：
-
-```text
-rule_based/build_medicalgraph.py
-rule_based/answer_search.py
-llm_based/graph_client.py
-```
-
-如果本机 Neo4j 密码不同，需要同步修改这些文件。
-
-Mac 上如果 Neo4j 解压目录是：
-
-```text
-/Volumes/PSSD/sources/neo4j-community-5.25.1
-```
-
-可以进入目录后启动：
+### 命令行调试
 
 ```bash
-cd /Volumes/PSSD/sources/neo4j-community-5.25.1
-bin/neo4j console
+# 运行 LLM 链路调试（会批量运行预置测试问题）
+python llm_base/chatbot_graph.py
 ```
 
-Neo4j Browser 默认地址：
+## API 接口
 
-```text
-http://127.0.0.1:7474
-```
+### `GET /api/status`
 
-Bolt 默认地址：
+服务状态检查。
 
-```text
-bolt://127.0.0.1:7687
-```
+### `POST /api/llm/chat`
 
-### 3.3 MongoDB
+LLM 增强版问答接口。
 
-如果只是运行现有知识图谱问答，通常不需要 MongoDB。
-
-如果要重新执行 `prepare_data/` 里的采集、清洗、入库流程，才需要 MongoDB。
-
-## 4. 导入知识图谱
-
-确认 Neo4j 已经启动后，在项目根目录执行：
-
-```bash
-.venv/bin/python rule_based/build_medicalgraph.py
-```
-
-这个脚本会读取：
-
-```text
-data/medical.json
-```
-
-并向 Neo4j 写入节点、关系和疾病属性。
-
-数据量较大，首次导入可能需要较长时间。
-
-导入后可以在 Neo4j Browser 中检查：
-
-```cypher
-MATCH (n) RETURN labels(n), count(n) LIMIT 20;
-```
-
-也可以检查某个疾病：
-
-```cypher
-MATCH (d:Disease {name: "乳腺癌"}) RETURN d LIMIT 1;
-```
-
-检查疾病症状关系：
-
-```cypher
-MATCH (d:Disease {name: "乳腺癌"})-[r:has_symptom]->(s:Symptom)
-RETURN d.name, r.name, s.name
-LIMIT 10;
-```
-
-## 5. 规则版问答：rule_based
-
-启动：
-
-```bash
-.venv/bin/python -m rule_based.chatbot_graph
-```
-
-核心流程：
-
-```text
-用户问题
-  -> QuestionClassifier 识别实体和 question_type
-  -> QuestionPaser 生成 Cypher
-  -> AnswerSearcher 查询 Neo4j
-  -> 根据 question_type 套用回答模板
-```
-
-主要文件：
-
-| 文件 | 作用 |
-| --- | --- |
-| `rule_based/question_classifier.py` | 词典匹配 + 规则判断，输出 `question_types` |
-| `rule_based/question_parser.py` | 把 `question_type` 转成 Cypher |
-| `rule_based/answer_search.py` | 执行 Cypher，并按模板生成答案 |
-| `rule_based/chatbot_graph.py` | 规则版主入口 |
-
-调试时会看到类似日志：
-
-```text
-[ChatBotGraph] question: 乳腺癌的症状有哪些？
-[QuestionClassifier] matched_entities: {'乳腺癌': ['disease']}
-[QuestionClassifier] entity_types: ['disease']
-[QuestionClassifier] question_types: ['disease_symptom']
-[QuestionPaser] sql_for_disease_symptom: [...]
-[AnswerSearcher] raw_result: [...]
-```
-
-常见判断方式：
-
-| 日志现象 | 可能原因 |
-| --- | --- |
-| `matched_entities` 为空 | 词典没有识别到实体 |
-| `question_types` 不符合预期 | 规则关键词没有命中 |
-| `sql` 为空 | parser 没有对应模板 |
-| `raw_result` 为空 | Neo4j 没有查到对应节点或关系 |
-| `pretty_answer` 为空 | 查询结果和回答模板字段不匹配 |
-
-## 6. 大模型版问答：llm_based
-
-启动：
-
-```bash
-.venv/bin/python -m llm_based.chatbot_graph
-```
-
-## 7. Web 服务与会话接口
-
-启动调试工作台：
-
-```bash
-.venv/bin/python web_app/server.py
-```
-
-默认地址：
-
-```text
-http://127.0.0.1:8000
-```
-
-当前接口：
-
-```text
-GET  /api/status
-GET  /api/session/status
-POST /api/rule/chat
-POST /api/llm/chat
-POST /api/session/clear
-```
-
-`/api/llm/chat` 请求示例：
-
+请求体：
 ```json
 {
   "question": "高血压不能吃什么？",
-  "session_id": "optional-browser-session-id"
+  "session_id": "debug-memory-002"
 }
 ```
 
-统一响应结构：
-
+响应体：
 ```json
 {
   "ok": true,
   "code": "OK",
   "request_id": "uuid",
-  "data": {},
-  "error": null,
-  "meta": {
-    "duration_ms": 12.34
+  "data": {
+    "mode": "llm_based",
+    "question": "高血压不能吃什么？",
+    "answer": "...",
+    "session_id": "...",
+    "debug": {
+      "linked_entities": [...],
+      "query_plan": {...},
+      "cypher": "...",
+      "graph_results": [...]
+    },
+    "graph": {
+      "nodes": [...],
+      "edges": [...]
+    }
   }
 }
 ```
 
-## 8. 工程化运行建议
+### `POST /api/session/clear`
 
-推荐通过环境变量配置运行参数，参考：
+清空指定会话。
 
-```text
-.env.example
+### `GET /api/session/status`
+
+查询当前活跃会话数量。
+
+## 知识图谱 Schema
+
+系统支持 8 种实体类型和 11 种预定义关系：
+
+### 实体类型
+
+| 类型 | Neo4j Label | 说明 |
+|------|-------------|------|
+| Disease | `Disease` | 疾病 |
+| Symptom | `Symptom` | 症状 |
+| Drug | `Drug` | 药品 |
+| Food | `Food` | 食物 |
+| Check | `Check` | 检查项目 |
+| Department | `Department` | 科室 |
+| Producer | `Producer` | 药品生产商 |
+
+### 支持的关系
+
+| 关系 | 起点 → 终点 | 说明 |
+|------|------------|------|
+| `has_symptom` | Disease → Symptom | 疾病症状 |
+| `acompany_with` | Disease → Disease | 并发疾病 |
+| `no_eat` | Disease → Food | 忌食 |
+| `do_eat` | Disease → Food | 宜食 |
+| `recommand_eat` | Disease → Food | 推荐食谱 |
+| `common_drug` | Disease → Drug | 常用药品 |
+| `recommand_drug` | Disease → Drug | 推荐药品 |
+| `need_check` | Disease → Check | 所需检查 |
+| `drugs_of` | Producer → Drug | 在售药品 |
+| `belongs_to` | Department → Department | 科室归属 |
+
+### 疾病属性查询
+
+支持查询疾病的简介、病因、预防措施、治疗周期、治疗方式、治愈概率、易感人群。
+
+## 项目结构
+
+```
+QASystemOnMedicalKG/
+├── llm_base/                 # 核心 LLM 问答链路
+│   ├── config.py             # 环境变量配置
+│   ├── schema.py             # 知识图谱 schema 定义
+│   ├── entity_link.py        # 实体识别
+│   ├── content_resolver.py   # 多轮上下文解析
+│   ├── question_rewriter.py  # 问题改写（代词消解）
+│   ├── intent_planner.py     # 查询计划生成
+│   ├── cypher_builder.py     # Cypher 语句构建
+│   ├── graph_client.py       # Neo4j 客户端
+│   ├── answer_generator.py   # 答案生成
+│   ├── llm_client.py         # LLM API 客户端
+│   ├── session_store.py      # 会话存储
+│   ├── memory_compressor.py  # 会话摘要压缩
+│   ├── persistent_store.py   # SQLite 持久化
+│   ├── runtime.py            # 运行时工具函数
+│   └── chatbot_graph.py      # 命令行调试入口
+├── web_app/                  # Web 服务
+│   ├── fastapi_server.py     # FastAPI 应用
+│   ├── server.py             # 问答服务核心
+│   └── static/               # 前端静态资源
+│       ├── index.html
+│       ├── styles.css
+│       └── app.js
+├── dict/                     # 医学实体词典
+│   ├── disease.txt
+│   ├── symptom.txt
+│   ├── drug.txt
+│   ├── food.txt
+│   ├── check.txt
+│   ├── department.txt
+│   ├── producer.txt
+│   ├── deny.txt
+│   └── check.txt
+├── tests/                    # 单元测试
+└── data/                     # 数据存储（SQLite 会话数据）
 ```
 
-重点配置项：
-
-```text
-LLM_API_KEY
-LLM_BASE_URL
-LLM_MODEL
-NEO4J_URI
-NEO4J_USER
-NEO4J_PASSWORD
-WEB_HOST
-WEB_PORT
-APP_LOG_LEVEL
-```
-
-## 9. 测试
-
-运行基础单元测试：
-
-```bash
-python -m unittest
-```
-
-## 10. Docker 部署
-
-构建镜像：
-
-```bash
-docker build -t medical-kg-qa:latest .
-```
-
-运行容器：
-
-```bash
-docker run --rm -p 8000:8000 \
-  -e WEB_HOST=0.0.0.0 \
-  -e WEB_PORT=8000 \
-  -e LLM_API_KEY=your-key \
-  -e NEO4J_URI=bolt://host.docker.internal:7687 \
-  -e NEO4J_USER=neo4j \
-  -e NEO4J_PASSWORD=12341234 \
-  medical-kg-qa:latest
-```
-
-## 11. 后续建议
-
-当前项目已经具备比较清晰的模块边界、基础测试、会话记忆和统一响应结构，但如果要继续向完整生产级靠近，下一步最值得做的是：
-
-1. 将 `web_app/server.py` 迁移到 `FastAPI`
-2. 增加请求鉴权、限流和中间件
-3. 增加更完整的评测集与自动化回归
-4. 引入容器编排和监控告警
-
-核心流程：
-
-```text
-用户问题
-  -> EntityLinker 从 dict/ 中识别图谱实体
-  -> IntentPlanner 让 LLM 生成结构化查询计划 plan
-  -> CypherBuilder 把 plan 转成参数化 Cypher
-  -> GraphClient 查询 Neo4j
-  -> AnswerGenerator 根据图谱结果生成自然语言回答
-```
-
-主要文件：
-
-| 文件 | 作用 |
-| --- | --- |
-| `llm_based/config.py` | LLM API 配置 |
-| `llm_based/schema.py` | 节点、属性、关系白名单 |
-| `llm_based/entity_linker.py` | 基于词典的实体识别和实体校验 |
-| `llm_based/intent_planner.py` | 调用 LLM 生成查询计划 |
-| `llm_based/cypher_builder.py` | 把查询计划转成 Cypher |
-| `llm_based/graph_client.py` | 查询 Neo4j |
-| `llm_based/answer_generator.py` | LLM/模板生成最终回答 |
-| `llm_based/chatbot_graph.py` | LLM 版主入口 |
+## 问答流程详解
 
-LLM 配置写在：
-
-```text
-llm_based/config.py
-```
-
-示例：
+### 1. 实体识别（EntityLinker）
 
-```python
-LLM_API_KEY = "你的 API Key"
-LLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-LLM_MODEL = "qwen-turbo"
-LLM_TIMEOUT = 30
-LLM_MAX_RETRIES = 2
-```
-
-注意：不要把真实 API Key 提交到公开仓库。
-
-`llm_based` 不是让大模型直接回答医学问题，而是让大模型做两件事：
-
-```text
-1. 理解问题，生成受 schema 约束的查询计划
-2. 根据 Neo4j 查询结果整理自然语言答案
-```
-
-事实数据仍然来自 Neo4j 知识图谱。
-
-调试时会看到类似日志：
-
-```text
-[EntityLinker] linked_entities: [...]
-[IntentPlanner] raw_plan: {...}
-[IntentPlanner] normalized_plan: {...}
-[CypherBuilder] cypher: MATCH ...
-[GraphClient] result_count: 10
-[AnswerGenerator] llm_answer: ...
-```
-
-常见判断方式：
-
-| 日志现象 | 可能原因 |
-| --- | --- |
-| `linked_entities` 为空 | `dict/` 词典没有识别到实体 |
-| `raw_plan` 为空 | LLM 调用失败或没有返回 JSON |
-| `normalized_plan` 为空 | LLM 输出不符合 schema |
-| `cypher` 为空 | plan 的 label、relation、property 不匹配 |
-| `result_count` 为 0 | Neo4j 没有对应数据 |
-| `llm_answer` 为空 | 回答生成模型调用失败，会走本地模板 |
-
-## 7. 前端调试页面
-
-启动：
-
-```bash
-.venv/bin/python web_app/server.py
-```
-
-浏览器访问：
-
-```text
-http://127.0.0.1:8000
-```
-
-前端支持：
-
-```text
-规则版 / LLM 版切换
-实体识别结果查看
-question_type 或 LLM plan 查看
-Cypher 查看
-Neo4j 原始结果查看
-简单图谱子图展示
-```
-
-## 8. VS Code 调试
-
-项目包含 `.vscode/launch.json`，可以直接在 VS Code 的 Run and Debug 中选择：
-
-```text
-Python: rule_based chatbot
-Python: llm_based chatbot
-Python: build medical graph
-```
-
-`.vscode/settings.json` 已经指向项目虚拟环境：
-
-```text
-${workspaceFolder}/.venv/bin/python
-```
-
-如果你使用 Code Runner 插件，建议确认它也使用 `.venv/bin/python`，否则可能出现：
-
-```text
-ModuleNotFoundError: No module named 'rule_based'
-ModuleNotFoundError: No module named 'llm_based'
-```
-
-推荐运行方式仍然是：
-
-```bash
-.venv/bin/python -m rule_based.chatbot_graph
-.venv/bin/python -m llm_based.chatbot_graph
-```
-
-## 9. 支持的问答类型
-
-规则版主要支持这些 `question_type`：
-
-| question_type | 中文含义 | 示例 |
-| --- | --- | --- |
-| `disease_desc` | 疾病简介 | 糖尿病 |
-| `disease_symptom` | 疾病查症状 | 乳腺癌的症状有哪些？ |
-| `symptom_disease` | 症状反查疾病 | 流鼻涕可能是什么病？ |
-| `disease_cause` | 疾病病因 | 为什么会得高血压？ |
-| `disease_acompany` | 疾病并发症 | 糖尿病有哪些并发症？ |
-| `disease_not_food` | 疾病忌口 | 高血压不能吃什么？ |
-| `disease_do_food` | 疾病宜吃/推荐食谱 | 高血压适合吃什么？ |
-| `food_not_disease` | 食物反查忌口疾病 | 哪些病人不能吃蜂蜜？ |
-| `food_do_disease` | 食物反查适合疾病 | 鹅肉对什么病有好处？ |
-| `disease_drug` | 疾病查药品 | 感冒要吃什么药？ |
-| `drug_disease` | 药品反查疾病 | 板蓝根颗粒能治什么病？ |
-| `disease_check` | 疾病查检查 | 脑膜炎需要做什么检查？ |
-| `check_disease` | 检查反查疾病 | 血常规能查出什么病？ |
-| `disease_prevent` | 疾病预防 | 怎么预防高血压？ |
-| `disease_lasttime` | 治疗周期 | 感冒多久能好？ |
-| `disease_cureway` | 治疗方式 | 糖尿病怎么治疗？ |
-| `disease_cureprob` | 治愈概率 | 高血压能治好吗？ |
-| `disease_easyget` | 易感人群 | 什么人容易得糖尿病？ |
+使用 Aho-Corasick 自动机在 `dict/` 词典中进行多模匹配，识别问题中出现的医学实体。支持长词优先（自动剔除被包含的短词），保证匹配到最具体的实体。
 
-LLM 版没有直接使用这些 `question_type`，而是使用结构化 plan：
+### 2. 上下文解析（ContextResolver）
 
-```json
-{
-  "action": "query_relation",
-  "subject": {
-    "name": "乳腺癌",
-    "label": "Disease"
-  },
-  "relation": "has_symptom",
-  "direction": "outgoing"
-}
-```
-
-或者：
-
-```json
-{
-  "action": "query_property",
-  "subject": {
-    "name": "高血压",
-    "label": "Disease"
-  },
-  "property": "cause"
-}
-```
-
-## 10. 推荐学习顺序
-
-1. 先看 [docs/README.md](docs/README.md)，了解文档目录。
-2. 看 [docs/rule_based/question_classifier.md](docs/rule_based/question_classifier.md)，理解规则分类。
-3. 看 [docs/rule_based/question_parser.md](docs/rule_based/question_parser.md)，理解 Cypher 是如何生成的。
-4. 看 [docs/rule_based/answer_search.md](docs/rule_based/answer_search.md)，理解 Neo4j 查询和模板回答。
-5. 运行 `rule_based`，跟着日志一步步 debug。
-6. 看 [docs/llm_based/README.md](docs/llm_based/README.md)，理解 LLM 通道。
-7. 运行 `llm_based`，重点观察 `linked_entities -> raw_plan -> cypher -> graph_results`。
-8. 最后用 `web_app` 做可视化调试。
-
-## 11. 常见问题
-
-### pip install ahocorasick 失败
-
-安装包名不是 `ahocorasick`，而是：
-
-```bash
-pip install pyahocorasick
-```
-
-代码里仍然这样导入：
-
-```python
-import ahocorasick
-```
-
-### No module named rule_based / llm_based
-
-不要直接在任意目录运行某个文件。推荐在项目根目录使用模块方式：
-
-```bash
-.venv/bin/python -m rule_based.chatbot_graph
-.venv/bin/python -m llm_based.chatbot_graph
-```
-
-### Cannot open connection to bolt://127.0.0.1:7687
-
-通常是 Neo4j 没启动、端口不通、账号密码不对，或者 Neo4j 启动后还没有完成初始化。
-
-先检查端口：
-
-```bash
-nc -vz 127.0.0.1 7687
-```
-
-再检查 Neo4j Browser：
-
-```text
-http://127.0.0.1:7474
-```
-
-### LLM 通道查不到 Neo4j 数据
-
-按日志逐步看：
-
-```text
-EntityLinker 是否识别到实体
-IntentPlanner 是否生成正确 plan
-CypherBuilder 是否生成正确 Cypher
-GraphClient 的 result_count 是否为 0
-```
-
-如果 `result_count` 是 0，可以把日志里的 Cypher 和 parameters 拿到 Neo4j Browser 里手动验证。
-
-## 12. 项目后续可以扩展的方向
-
-目前这个项目适合作为医疗知识图谱问答学习项目。后续可以继续尝试：
-
-```text
-把 cause / prevent 等大段文本属性进一步结构化为节点和关系
-增加更多 LLM 查询计划类型
-支持多跳关系查询
-支持实体消歧
-支持更完整的前端图谱可视化
-用事件抽取把病因、预防措施、治疗方式结构化
-```
+在多轮对话场景中，从历史记录中恢复当前主题、上一轮查询计划和结果实体，推测用户是否在追问，并识别"第一个/第二个"等指代。
+
+### 3. 问题改写（QuestionRewriter）
+
+对包含"它/那/这个"等代词的问题进行改写，将不完整问题还原为独立完整的问句，确保实体识别模块能正常工作。
+
+### 4. 查询规划（IntentPlanner）
+
+将用户问题、已识别实体和 schema 白名单提交给 LLM，LLM 输出受 schema 约束的结构化查询计划（而非直接输出 Cypher），避免 LLM 生成非法查询。如果 LLM 不可用，使用兜底规则。
+
+### 5. Cypher 生成（CypherBuilder）
+
+将查询计划转换为参数化 Cypher 语句。实体名作为参数传入，防止 Cypher 注入。
+
+### 6. 答案生成（AnswerGenerator）
+
+将图谱查询结果提交给 LLM 生成自然语言回答，限制 LLM 只能基于图谱结果回答，降低幻觉风险。LLM 不可用时自动使用模板回答。
+
+### 7. 会话管理（SessionStore）
+
+内存缓存最近 N 轮对话，SQLite 持久化所有轮次。轮次超过阈值时触发 LLM 摘要压缩，压缩后的摘要注入后续对话的 prompt，实现长对话支持。
+
+## 设计特点
+
+- **安全性**：所有 LLM 输出经过 schema 白名单校验；Cypher 使用参数化查询
+- **可调试**：每个模块的 `debug_print` 输出关键中间变量；API 返回完整 debug 信息
+- **可观测**：统一 `api_response` 响应结构，包含 `request_id` 和 `duration_ms`
+- **容错**：每个 LLM 调用都有手动降级路径，网络抖动自动重试
+- **可扩展**：新增实体类型只需添加词典文件，新增关系只需在 schema 中声明

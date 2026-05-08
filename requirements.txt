@@ -1,6 +1,0 @@
-py2neo==2021.2.4
-pyahocorasick==2.1.0
-lxml==5.3.0
-pymongo==4.10.1
-fastapi==0.115.6
-uvicorn==0.34.0
