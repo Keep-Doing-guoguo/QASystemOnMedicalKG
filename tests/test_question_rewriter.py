@@ -14,22 +14,88 @@ class DummyLLMClient:
 
 
 class QuestionRewriterTests(unittest.TestCase):
+    def test_no_history_not_rewritten(self):
+        llm = DummyLLMClient("不应被调用")
+        rewriter = QuestionRewriter(llm)
+        question = "它的病因呢？"
+        self.assertEqual(rewriter.rewrite(question, []), question)
+        self.assertEqual(llm.calls, 0)
+
     def test_complete_question_not_rewritten(self):
         llm = DummyLLMClient("不应被调用")
         rewriter = QuestionRewriter(llm)
         question = "高血压怎么治疗？"
-        self.assertEqual(rewriter.rewrite(question, []), question)
+        history = self.history_with_plan("高血压")
+        self.assertEqual(rewriter.rewrite(question, history), question)
         self.assertEqual(llm.calls, 0)
 
-    def test_pronoun_question_is_rewritten(self):
+    def test_pronoun_question_is_rewritten_by_latest_plan_subject(self):
+        llm = DummyLLMClient("不应被调用")
+        rewriter = QuestionRewriter(llm)
+        history = self.history_with_plan("高血压")
+
+        rewritten = rewriter.rewrite("它的病因呢？", history)
+
+        self.assertEqual(rewritten, "高血压的病因呢？")
+        self.assertEqual(llm.calls, 0)
+
+    def test_followup_question_is_rewritten_by_latest_plan_subject(self):
+        llm = DummyLLMClient("不应被调用")
+        rewriter = QuestionRewriter(llm)
+        history = self.history_with_plan("高血压")
+
+        rewritten = rewriter.rewrite("那它适合吃什么？", history)
+
+        self.assertEqual(rewritten, "那高血压适合吃什么？")
+        self.assertEqual(llm.calls, 0)
+
+    def test_topic_can_be_resolved_from_entities(self):
+        llm = DummyLLMClient("不应被调用")
+        rewriter = QuestionRewriter(llm)
+        history = [
+            {"role": "user", "question": "感冒要吃什么药？"},
+            {
+                "role": "assistant",
+                "answer": "感冒可查询常用药。",
+                "entities": [
+                    {"name": "感冒", "types": ["disease"], "labels": ["Disease"]},
+                ],
+            },
+        ]
+
+        rewritten = rewriter.rewrite("它多久能好？", history)
+
+        self.assertEqual(rewritten, "感冒多久能好？")
+        self.assertEqual(llm.calls, 0)
+
+    def test_llm_is_used_when_heuristic_cannot_resolve_topic(self):
         llm = DummyLLMClient("高血压的病因是什么？")
         rewriter = QuestionRewriter(llm)
         history = [
             {"role": "user", "question": "高血压是什么？"},
             {"role": "assistant", "answer": "高血压是一种常见疾病。"},
         ]
+
         rewritten = rewriter.rewrite("它的病因呢？", history)
+
         self.assertEqual(rewritten, "高血压的病因是什么？")
+        self.assertEqual(llm.calls, 1)
+
+    @staticmethod
+    def history_with_plan(subject_name):
+        return [
+            {"role": "user", "question": subject_name + "不能吃什么？"},
+            {
+                "role": "assistant",
+                "answer": subject_name + "患者需要注意饮食。",
+                "plan": {
+                    "action": "query_relation",
+                    "subject": {"name": subject_name, "label": "Disease"},
+                    "relation": "no_eat",
+                    "direction": "outgoing",
+                },
+            },
+        ]
 
 
 if __name__ == "__main__":

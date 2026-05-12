@@ -48,7 +48,7 @@ class MemoryCompressor:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _format_turns(turns):
+    def _format_turns(turns):#是把历史对话整理给 LLM 看
         lines = []
         for turn in turns:
             role = turn.get("role", "")
@@ -60,8 +60,16 @@ class MemoryCompressor:
         return "\n".join(lines)
 
     @staticmethod
-    def _fallback_compress(turns, existing_summary):
-        """LLM 不可用时的降级压缩。"""
+    def _fallback_compress(turns, existing_summary):#是 LLM 失败时的保底方案
+        """
+        LLM 不可用时的降级压缩。
+        
+        只提取 user 的问题
+        取最后 5 个问题
+        用中文分号拼起来
+
+        
+        """
         topics = []
         for turn in turns:
             if turn.get("role") == "user" and turn.get("question"):
@@ -70,9 +78,10 @@ class MemoryCompressor:
         if existing_summary:
             return existing_summary + "；" + new_part
         return new_part
+    
 
     @staticmethod
-    def _system_prompt():
+    def _system_prompt():#是告诉 LLM 怎么总结
         return (
             "你是对话摘要压缩器。将用户与助手的对话历史压缩为简洁摘要。\n"
             "规则：\n"
